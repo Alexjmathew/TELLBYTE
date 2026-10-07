@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fraud Detection Pipeline – 3D Simulation</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap">
+<style>
+:root{--bg:#070b18;--panel:rgba(12,18,40,.78);--line:rgba(120,150,255,.22);--tx:#e8edff;--mut:#8f9bc4;--blue:#2f8cff;--green:#22c55e;--amber:#fbbf24;--red:#ef4444;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--tx);font-family:'Sora',system-ui,sans-serif;overflow:hidden}
+canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+.hud{position:fixed;pointer-events:none;z-index:2}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;backdrop-filter:blur(10px);padding:14px 16px}
+#title{left:16px;top:calc(14px + env(safe-area-inset-top,0px))}
+#title h1{font-size:17px;margin:0 0 2px;font-weight:700}
+#title p{margin:0;font-size:12px;color:var(--mut)}
+#stats{right:16px;top:calc(14px + env(safe-area-inset-top,0px));width:210px}
+#stats .row{display:flex;justify-content:space-between;font-size:12px;margin:5px 0;color:var(--mut)}
+#stats b{color:var(--tx);font-variant-numeric:tabular-nums}
+.bar{height:8px;border-radius:5px;overflow:hidden;display:flex;background:#1a2346;margin-top:8px}
+.bar i{display:block;height:100%;transition:width .3s}
+#info{left:16px;bottom:calc(86px + env(safe-area-inset-bottom,0px));width:min(380px,calc(100% - 32px))}
+#info h2{margin:0 0 6px;font-size:16px}
+#info p{margin:0;font-size:13px;line-height:1.55;color:#c5cdf0}
+#info .tag{margin-top:10px;font-size:12px;color:var(--mut)}
+#nav{left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));pointer-events:auto;display:flex;gap:6px;padding:8px;max-width:calc(100% - 20px);overflow-x:auto}
+#nav button{font:600 12px 'Sora',sans-serif;color:var(--tx);background:#141c3d;border:1px solid var(--line);border-radius:10px;padding:9px 12px;cursor:pointer;white-space:nowrap}
+#nav button:hover{background:#1d2850}
+#nav button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+#nav button.on{background:var(--blue);border-color:var(--blue)}
+#nav .sep{width:1px;background:var(--line);margin:0 4px}
+#nav button.act{background:#0f2a1c;border-color:#1f6b3f}
+@media(max-width:700px){#title p{display:none}#info{bottom:calc(76px + env(safe-area-inset-bottom,0px))}}
+@media(prefers-reduced-motion:reduce){.bar i{transition:none}}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="3D fraud detection workflow simulation"></canvas>
+<div class="hud panel" id="title"><h1>Fraud Detection Pipeline</h1><p>Drag to orbit · scroll to zoom</p></div>
+<div class="hud panel" id="info"><h2 id="iT"></h2><p id="iP"></p><div class="tag" id="iX"></div></div>
+<div class="hud panel" id="nav" role="toolbar" aria-label="Pipeline steps"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+const T=THREE, $=id=>document.getElementById(id);
+const COL=[0x2f8cff,0x22c55e,0x8b5cf6,0xff9f1c,0x38bdf8,0x6366f1,0x14b8a6];
+const RISK=[0x22c55e,0xfbbf24,0xef4444];
+const STEPS=[
+ ['Upload','The user adds transactions.csv on the web page. The file enters the pipeline as a stream of invoices.','Input: transactions.csv · 2.4 MB'],
+ ['Check','The app confirms the file is a CSV within the size limit and has seller_gstin, buyer_gstin and amount. If not, it shows an error and stops.','Gate: type · size · required columns'],
+ ['Features','Fraud signals are calculated for each invoice: ITC ratio, repeated seller–buyer pairs and seller age.','Signals: ITC ratio · repeated pairs · seller age'],
+ ['Score','The trained neural network gives each invoice a fraud probability and a risk level. Packets turn green, amber or red.','Output: probability + Low / Medium / High'],
+ ['Report','Charts, top suspicious invoices, the risk ring, the final verdict and recommended actions are built.','Verdict: High Risk when 28% are flagged'],
+ ['Save','The report is stored as JSON in the database.','Stored: report.json'],
+ ['Show','The report is displayed in the browser dashboard.','Dashboard: totals · charts · actions']
+];
+const N=80, PER=1250/N, CNT=[42,16,22];
+
+// renderer / scene
+const cv=$('c'), R=new T.WebGLRenderer({canvas:cv,antialias:true});
+R.setPixelRatio(Math.min(devicePixelRatio,2));
+const sc=new T.Scene(); sc.background=new T.Color(0x070b18); sc.fog=new T.FogExp2(0x070b18,0.011);
+const cam=new T.PerspectiveCamera(50,1,0.1,400);
+sc.add(new T.AmbientLight(0x8090c0,.55));
+const dl=new T.DirectionalLight(0xffffff,.6); dl.position.set(10,25,15); sc.add(dl);
+const grid=new T.GridHelper(200,100,0x1b2a55,0x101835); grid.position.y=-.2; sc.add(grid);
+
+// path
+const pts=[]; for(let i=0;i<7;i++) pts.push(new T.Vector3((i-3)*11,0,Math.sin(i*.8)*5));
+const curve=new T.CatmullRomCurve3(pts);
+sc.add(new T.Mesh(new T.TubeGeometry(curve,240,.1,8),new T.MeshBasicMaterial({color:0x2f8cff,transparent:true,opacity:.45})));
+
+// helpers
+function tex(w,h,fn){const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');fn(x,w,h);const t=new T.CanvasTexture(c);t.anisotropy=4;return {t,c,x};}
+function label(txt,col,sx){const k=tex(512,128,(x,w,h)=>{x.font='700 54px Sora,Arial';x.textAlign='center';x.textBaseline='middle';x.fillStyle='#'+new T.Color(col).getHexString();x.fillText(txt,w/2,h/2);});
+ const s=new T.Sprite(new T.SpriteMaterial({map:k.t,transparent:true,depthWrite:false}));s.scale.set(sx||7,(sx||7)/4,1);return s;}
+const mat=(c,e)=>new T.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:e??.35,roughness:.4,metalness:.3});
+const anim=[];
+
+// stations
+const st=[];
+for(let i=0;i<7;i++){
+ const g=new T.Group(); g.position.copy(curve.getPointAt(i/6)); sc.add(g);
+ const base=new T.Mesh(new T.CylinderGeometry(4.6,4.8,.3,48),new T.MeshStandardMaterial({color:0x0e1530,roughness:.6}));
+ base.position.y=-.05;g.add(base);
+ const rim=new T.Mesh(new T.TorusGeometry(4.6,.07,8,64),new T.MeshBasicMaterial({color:COL[i]}));rim.rotation.x=Math.PI/2;rim.position.y=.12;g.add(rim);
+ const lt=new T.PointLight(COL[i],0,20);lt.position.y=5;g.add(lt);
+ const lb=label((i+1)+'  '+STEPS[i][0],COL[i]);lb.position.set(0,7.2,0);g.add(lb);
+ st.push({g,rim,lt});
+}
+
+// 1 Upload: floating CSV file + drop slab
+{const g=st[0].g;
+ const f=tex(256,320,(x,w,h)=>{x.fillStyle='#e8f0ff';x.fillRect(0,0,w,h);x.fillStyle='#16a34a';x.fillRect(40,150,176,64);x.fillStyle='#fff';x.font='700 44px Sora,Arial';x.textAlign='center';x.fillText('CSV',128,196);x.fillStyle='#456';for(let k=0;k<4;k++)x.fillRect(40,40+k*20,176-k*30,8);});
+ const file=new T.Mesh(new T.BoxGeometry(2,2.5,.15),[mat(0x9bb8ff,.1),mat(0x9bb8ff,.1),mat(0x9bb8ff,.1),mat(0x9bb8ff,.1),new T.MeshBasicMaterial({map:f.t}),new T.MeshBasicMaterial({map:f.t})]);
+ file.position.set(-1.5,3,-1.2);g.add(file);
+ const slab=new T.Mesh(new T.BoxGeometry(3.4,.2,3.4),mat(0x1d4fb8,.5));slab.position.set(-.5,.2,0);g.add(slab);
+ anim.push(t=>{file.position.y=3+Math.sin(t*1.5)*.3;file.rotation.y=Math.sin(t*.8)*.4;});}
+
+// 2 Check: gate with three check rings
+const rings=[];
+{const g=st[1].g,m=mat(0x15803d,.4);
+ [-2.2,2.2].forEach(z=>{const p=new T.Mesh(new T.BoxGeometry(.5,4.4,.5),m);p.position.set(0,2.2,z);g.add(p);});
+ const top=new T.Mesh(new T.BoxGeometry(.6,.5,5.2),m);top.position.set(0,4.5,0);g.add(top);
+ for(let k=0;k<3;k++){const r=new T.Mesh(new T.TorusGeometry(1.5,.07,8,40),new T.MeshBasicMaterial({color:0x22c55e,transparent:true,opacity:.2}));r.rotation.y=Math.PI/2;r.position.set(-1.2+k*1.2,2.2,0);g.add(r);rings.push(r);}
+ anim.push(t=>rings.forEach((r,k)=>{r.material.opacity=.15+.75*Math.max(0,Math.sin(t*3-k*1.1));}));}
+
+// 3 Features: orbiting signals
+{const g=st[2].g,orb=new T.Group();orb.position.y=3;g.add(orb);
+ const a=new T.Mesh(new T.IcosahedronGeometry(.8,1),mat(0x2f8cff,.6));
+ const b=new T.Mesh(new T.TorusKnotGeometry(.55,.18,64,8),mat(0x8b5cf6,.6));
+ const c=new T.Mesh(new T.OctahedronGeometry(.85),mat(0x22c55e,.6));
+ [a,b,c].forEach((m,k)=>{const an=k*2.094;m.position.set(Math.cos(an)*2.4,0,Math.sin(an)*2.4);orb.add(m);});
+ const l1=label('ITC ratio',0x2f8cff,4);l1.position.set(0,-1.8,2.8);orb.add(l1);
+ anim.push(t=>{orb.rotation.y=t*.7;[a,b,c].forEach(m=>{m.rotation.x=t;m.rotation.y=t*.6;});});}
+
+// 4 Score: neural net
+const nodes=[];
+{const g=st[3].g,L=[3,5,5,1],lp=[],net=new T.Group();net.position.set(0,3.6,-1.4);g.add(net);
+ L.forEach((n,li)=>{const col=[];for(let k=0;k<n;k++){const m=new T.Mesh(new T.SphereGeometry(.28,16,12),mat(0xff9f1c,.4));
+  m.position.set(-3.3+li*2.2,(k-(n-1)/2)*1.05,0);net.add(m);nodes.push(m);col.push(m.position);}lp.push(col);});
+ const v=[];for(let l=0;l<3;l++)lp[l].forEach(a=>lp[l+1].forEach(b=>v.push(a,b)));
+ net.add(new T.LineSegments(new T.BufferGeometry().setFromPoints(v),new T.LineBasicMaterial({color:0xff9f1c,transparent:true,opacity:.28})));
+ anim.push(t=>nodes.forEach((m,k)=>{m.material.emissiveIntensity=.2+.8*Math.max(0,Math.sin(t*4-k*.5));}));}
+
+// 5 Report: bars + ring
+const bars=[];let ringG;
+{const g=st[4].g;
+ [0x22c55e,0xfbbf24,0xef4444].forEach((c,k)=>{const b=new T.Mesh(new T.BoxGeometry(.9,1,.9),mat(c,.5));b.position.set(-3.1+k*1.2,.15,-2.2);b.scale.y=.01;g.add(b);bars.push(b);});
+ ringG=new T.Group();ringG.position.set(1.8,3.2,-2.2);g.add(ringG);
+ let s=0;CNT.forEach((n,k)=>{const arc=n/N*Math.PI*2;const m=new T.Mesh(new T.TorusGeometry(1.4,.32,10,40,arc-.05),mat(RISK[k],.5));m.rotation.z=s;s+=arc;ringG.add(m);});
+ ringG.scale.setScalar(.01);}
+
+// 6 Save: database stack
+let dbG;
+{const g=st[5].g;dbG=new T.Group();dbG.position.set(0,0,-1.6);g.add(dbG);
+ for(let k=0;k<3;k++){const c=new T.Mesh(new T.CylinderGeometry(1.5,1.5,.9,32),mat(0x4f46e5,.3));c.position.y=.7+k*1.05;dbG.add(c);
+  const r=new T.Mesh(new T.TorusGeometry(1.5,.05,8,40),new T.MeshBasicMaterial({color:0xa5b4fc}));r.rotation.x=Math.PI/2;r.position.y=1.15+k*1.05;dbG.add(r);}
+ const j=label('{ } report.json',0xa5b4fc,5);j.position.set(0,5,0);dbG.add(j);
+ anim.push(t=>{dbG.children.forEach((c,k)=>{if(c.material&&c.material.emissiveIntensity!==undefined)c.material.emissiveIntensity=.25+.3*Math.sin(t*3-k);});});}
+
+// 7 Show: dashboard screen
+const scr=tex(700,410,()=>{});
+const screen=new T.Mesh(new T.PlaneGeometry(7.4,4.33),new T.MeshBasicMaterial({map:scr.t}));
+screen.position.set(0,3.4,-2.2);st[6].g.add(screen);
+const frame=new T.Mesh(new T.BoxGeometry(7.6,4.5,.12),mat(0x0f766e,.3));frame.position.set(0,3.4,-2.3);st[6].g.add(frame);
+
+// packets
+const pk=[];const geo=new T.BoxGeometry(.5,.5,.5);
+const order=[];for(let k=0;k<N;k++)order.push(k);
+for(let k=N-1;k>0;k--){const j=(k*7919+13)%(k+1);[order[k],order[j]]=[order[j],order[k]];}
+for(let i=0;i<N;i++){const risk=order[i]<CNT[0]?0:order[i]<CNT[0]+CNT[1]?1:2;
+ const m=new T.Mesh(geo,new T.MeshStandardMaterial({color:0x9bc4ff,emissive:0x9bc4ff,emissiveIntensity:.6}));m.visible=false;sc.add(m);
+ pk.push({m,risk,lane:(i%5-2)*.32,start:i*.34,t:0,stage:0});}
+
+// state
+const S={time:0,run:true,auto:true,idx:0,speed:.045,yaw:.3,pitch:.5,dist:17,over:false,c:[0,0,0],tot:0,chk:0,fea:0,scr:0,sav:0,shown:0};
+const camPos=new T.Vector3(0,30,40),camLook=new T.Vector3();
+let dragging=false,lx=0,ly=0;
+cv.addEventListener('pointerdown',e=>{dragging=true;lx=e.clientX;ly=e.clientY;cv.style.cursor='grabbing';});
+addEventListener('pointerup',()=>{dragging=false;cv.style.cursor='grab';});
+addEventListener('pointermove',e=>{if(!dragging)return;S.yaw-=(e.clientX-lx)*.006;S.pitch=Math.max(.15,Math.min(1.3,S.pitch+(e.clientY-ly)*.005));lx=e.clientX;ly=e.clientY;});
+cv.addEventListener('wheel',e=>{e.preventDefault();S.dist=Math.max(8,Math.min(60,S.dist+e.deltaY*.02));},{passive:false});
+
+// nav
+const nav=$('nav');
+function btn(txt,fn,cls){const b=document.createElement('button');b.textContent=txt;b.onclick=fn;if(cls)b.className=cls;nav.appendChild(b);return b;}
+const sb=STEPS.map((s,i)=>btn((i+1)+' '+s[0],()=>{S.auto=false;S.over=false;setIdx(i);sync();}));
+nav.appendChild(Object.assign(document.createElement('span'),{className:'sep'}));
+const bOv=btn('Overview',()=>{S.over=!S.over;S.auto=false;sync();});
+const bAu=btn('Follow data',()=>{S.auto=!S.auto;S.over=false;sync();},'act');
+const bPl=btn('Pause',()=>{S.run=!S.run;sync();});
+btn('Restart',()=>{restart();});
+function sync(){sb.forEach((b,i)=>b.classList.toggle('on',i===S.idx&&!S.over));bAu.classList.toggle('on',S.auto);bOv.classList.toggle('on',S.over);bPl.textContent=S.run?'Pause':'Play';}
+function setIdx(i){S.idx=i;$('iT').textContent=(i+1)+'. '+STEPS[i][0];$('iP').textContent=STEPS[i][1];$('iX').textContent=STEPS[i][2];sync();}
+function restart(){S.time=0;S.c=[0,0,0];S.tot=S.chk=S.fea=S.scr=S.sav=S.shown=0;pk.forEach(p=>{p.t=0;p.stage=0;p.m.visible=false;});S.run=true;S.auto=true;S.over=false;setIdx(0);}
+
+// dashboard drawing
+function drawScreen(){
+ const x=scr.x,w=700,h=410,tot=Math.round(S.tot*PER),L=S.c[0],M=S.c[1],H=S.c[2],sc_=Math.max(1,L+M+H);
+ x.fillStyle='#0c1530';x.fillRect(0,0,w,h);x.fillStyle='#10204a';x.fillRect(0,0,120,h);
+ x.fillStyle='#e8edff';x.font='700 15px Sora,Arial';x.textAlign='left';x.fillText('Fraud Detection Report',140,30);
+ x.font='12px Sora,Arial';['Dashboard','Charts','Top Suspicious','Report','Settings'].forEach((t,i)=>{x.fillStyle=i?'#8f9bc4':'#fff';x.fillText(t,12,40+i*30);});
+ const tiles=[['Total invoices',String(tot),'#e8edff'],['High risk',Math.round(H/sc_*100)+'%','#ef4444'],['Medium risk',Math.round(M/sc_*100)+'%','#fbbf24'],['Low risk',Math.round(L/sc_*100)+'%','#22c55e']];
+ tiles.forEach((t,i)=>{const px=140+i*138;x.fillStyle='#152552';x.fillRect(px,48,128,62);x.fillStyle='#8f9bc4';x.font='11px Sora,Arial';x.fillText(t[0],px+10,70);x.fillStyle=t[2];x.font='700 22px Sora,Arial';x.fillText(t[1],px+10,98);});
+ x.fillStyle='#152552';x.fillRect(140,124,250,150);x.fillRect(400,124,280,150);
+ [L,M,H].forEach((v,i)=>{const bh=v/N*220*(S.shown?1:.6);x.fillStyle=['#22c55e','#fbbf24','#ef4444'][i];x.fillRect(170+i*70,258-bh,42,bh);});
+ x.fillStyle='#8f9bc4';x.font='11px Sora,Arial';x.fillText('Fraud probability distribution',150,142);x.fillText('Risk level',410,142);
+ let a=-Math.PI/2;[L,M,H].forEach((v,i)=>{const e=a+v/sc_*Math.PI*2;x.beginPath();x.strokeStyle=['#22c55e','#fbbf24','#ef4444'][i];x.lineWidth=18;x.arc(490,208,42,a,e);x.stroke();a=e;});
+ x.fillStyle='#fff';x.font='700 15px Sora,Arial';x.textAlign='center';x.fillText(Math.round(H/sc_*100)+'%',490,212);x.textAlign='left';
+ x.fillStyle='#ef4444';x.font='700 18px Sora,Arial';x.fillText(S.scr?'High Risk':'Waiting…',570,200);x.fillStyle='#8f9bc4';x.font='11px Sora,Arial';x.fillText('final verdict',570,220);
+ x.fillStyle='#152552';x.fillRect(140,286,540,110);x.fillStyle='#e8edff';x.font='700 12px Sora,Arial';x.fillText('Recommended actions',152,306);
+ x.fillStyle='#22c55e';x.font='12px Sora,Arial';['Review top suspicious invoices','Verify seller / buyer GSTIN details','Reassess ITC claims for high-risk cases'].forEach((t,i)=>x.fillText('✓ '+t,152,330+i*20));
+ if(S.shown>=N){x.fillStyle='#15803d';x.fillRect(480,362,190,26);x.fillStyle='#fff';x.font='700 11px Sora,Arial';x.fillText('Report saved successfully',496,379);}
+ scr.t.needsUpdate=true;
+}
+
+// stats DOM
+function updStats(){}
+
+function resize(){const w=innerWidth,h=innerHeight;R.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix();}
+addEventListener('resize',resize);resize();
+
+// loop
+const clock=new T.Clock();let acc=0,reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const tmp=new T.Vector3(),want=new T.Vector3(),wl=new T.Vector3(),cc=new T.Color();
+function loop(){
+ requestAnimationFrame(loop);
+ const dt=Math.min(clock.getDelta(),.05),t=clock.elapsedTime;
+ if(S.run)S.time+=dt;
+ // packets
+ let inflight=0,sum=0;
+ pk.forEach((p,i)=>{
+  const tt=(S.time-p.start)*S.speed;
+  if(tt<0){p.m.visible=false;return;}
+  if(tt>1.02){p.m.visible=false;if(p.stage<6){p.stage=6;S.shown++;}return;}
+  p.m.visible=true;const q=Math.min(tt,1);
+  curve.getPointAt(q,tmp);p.m.position.set(tmp.x,1.1+Math.sin(t*3+i)*.12,tmp.z+p.lane);
+  p.m.rotation.y=t*2+i;
+  const grow=Math.min(1,q*40),shrink=q>.86?Math.max(0,1-(q-.86)/.12):1;p.m.scale.setScalar(grow*shrink);
+  // stage events
+  if(p.stage<1){p.stage=1;S.tot++;}
+  if(p.stage<2&&q>=1/6){p.stage=2;S.chk++;}
+  if(p.stage<3&&q>=2/6){p.stage=3;S.fea++;}
+  if(p.stage<4&&q>=3/6){p.stage=4;S.scr++;S.c[p.risk]++;}
+  if(p.stage<5&&q>=5/6){p.stage=5;S.sav++;}
+  const base=q<3/6?COL[Math.min(2,Math.round(q*6))]:RISK[p.risk];
+  cc.setHex(base);p.m.material.color.copy(cc);p.m.material.emissive.copy(cc);
+  inflight++;sum+=q;
+ });
+ if(S.auto&&S.run&&inflight){const k=Math.max(0,Math.min(6,Math.round(sum/inflight*6)));if(k!==S.idx)setIdx(k);}
+ else if(S.auto&&!inflight&&S.shown>=N&&S.idx!==6)setIdx(6);
+ // station glow
+ st.forEach((s,i)=>{const on=i===S.idx&&!S.over;s.lt.intensity+=((on?2.2:.3)-s.lt.intensity)*.08;s.rim.scale.setScalar(1+(on?.03*Math.sin(t*4):0));});
+ anim.forEach(f=>f(t));
+ // report visuals
+ const sc_=Math.max(1,S.c[0]+S.c[1]+S.c[2]);
+ bars.forEach((b,k)=>{const target=Math.max(.01,S.c[k]/N*7);b.scale.y+=(target-b.scale.y)*.1;b.position.y=.15+b.scale.y/2;});
+ const rs=S.scr/N;ringG.scale.setScalar(Math.max(.01,ringG.scale.x+(rs-ringG.scale.x)*.1));ringG.rotation.y=Math.sin(t*.5)*.3;
+ dbG.scale.setScalar(1+(S.sav>0?.03*Math.sin(t*6):0));
+ // camera
+ const f=st[S.idx].g.position;
+ if(S.over){want.set(0,32,44);wl.set(0,0,0);}
+ else{want.set(f.x+Math.sin(S.yaw)*Math.cos(S.pitch)*S.dist,Math.sin(S.pitch)*S.dist+1.5,f.z+Math.cos(S.yaw)*Math.cos(S.pitch)*S.dist);wl.set(f.x,2.6,f.z);}
+ const ease=reduce?1:.045;camPos.lerp(want,ease);camLook.lerp(wl,ease);cam.position.copy(camPos);cam.lookAt(camLook);
+ acc+=dt;if(acc>.2){acc=0;updStats();drawScreen();}
+ R.render(sc,cam);
+}
+camPos.set(-40,12,26);camLook.set(-33,2,0);
+setIdx(0);updStats();drawScreen();loop();
+})();
+</script>
+</body>
+</html>
