@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+{% block content %}
+<h1>Saved reports</h1>
+<p class="muted">Every scan is stored as JSON in the SQLite database <code>data/gst_reports.db</code>.</p>
+<section class="card">
+{% if rows %}
+<div class="scroll"><table>
+<thead><tr><th>Date</th><th>File</th><th class="r">Rows</th><th class="r">Flagged</th><th>Rating</th><th></th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr><td>{{ r.created_at|nice_date }}</td><td>{{ r.filename }}</td><td class="r">{{ "{:,}".format(r.total_rows) }}</td>
+<td class="r">{{ "{:,}".format(r.flagged_rows) }}</td>
+<td><span class="rate {{ r.risk_rating|lower }}">{{ r.risk_rating }}</span></td>
+<td class="acts"><a href="{{ url_for('view_report', rid=r.id) }}">Open</a>
+<a href="{{ url_for('api_report', rid=r.id, download=1) }}">JSON</a>
+<form method="post" action="{{ url_for('delete', rid=r.id) }}" data-confirm="Delete this report?"><input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="lnk">Delete</button></form></td></tr>
+{% endfor %}</tbody></table></div>
+{% else %}<p class="muted">No reports yet. <a href="{{ url_for('index') }}">Run a scan</a>.</p>{% endif %}
+</section>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}

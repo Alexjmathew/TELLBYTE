@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+uploads/
+data/*.db
+data/transactions_with_answers.csv
+model/

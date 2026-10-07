@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Report - {{ r.filename }}{% endblock %}
+{% block content %}
+{% set s = r.summary %}{% set v = r.verdict %}
+<div class="rhead">
+  <div><h1>Fraud Analysis Report</h1>
+  <p class="muted">{{ r.filename }} · scanned {{ r.scanned_at|nice_date }} · threshold {{ r.threshold }} · report ID {{ rid }}</p></div>
+  <div class="actions">
+    <a class="btn ghost" href="{{ url_for('download', rid=rid) }}">Flagged CSV</a>
+    <a class="btn ghost" href="{{ url_for('api_report', rid=rid, download=1) }}">Report JSON</a>
+    <button class="btn" id="printBtn" type="button">Print / PDF</button>
+  </div>
+</div>
+
+<section class="verdict {{ v.rating|lower }}">
+  <div class="vbadge">{{ v.rating }}</div>
+  <div><h2>{{ v.headline }}</h2></div>
+</section>
+
+<section class="cards">
+  <div class="stat"><span>Transactions</span><b>{{ "{:,}".format(s.total) }}</b></div>
+  <div class="stat danger"><span>Flagged</span><b>{{ "{:,}".format(s.flagged) }}</b><em>{{ s.flag_rate }}% of total</em></div>
+  <div class="stat danger"><span>High risk</span><b>{{ "{:,}".format(s.high) }}</b></div>
+  <div class="stat"><span>Flagged value</span><b>{{ s.flagged_amount|inr }}</b></div>
+  <div class="stat warn"><span>ITC at risk</span><b>{{ s.itc_at_risk|inr }}</b></div>
+</section>
+
+<h2 class="sec">Overview</h2>
+<section class="charts">
+  <figure><img src="data:image/png;base64,{{ c.risk_donut }}" alt="Risk split"></figure>
+  <figure><img src="data:image/png;base64,{{ c.prob_hist }}" alt="Score distribution"></figure>
+  <figure><img src="data:image/png;base64,{{ c.amount_scatter }}" alt="Amount vs risk"></figure>
+  <figure><img src="data:image/png;base64,{{ c.monthly }}" alt="Monthly trend"></figure>
+</section>
+
+<h2 class="sec">Fraud patterns</h2>
+<section class="charts">
+  <figure><img src="data:image/png;base64,{{ c.type_bar }}" alt="Patterns"></figure>
+  <figure><img src="data:image/png;base64,{{ c.seller_bar }}" alt="Top sellers"></figure>
+  <figure class="wide"><img src="data:image/png;base64,{{ c.network }}" alt="Network"></figure>
+</section>
+
+<section class="card">
+  <h3>Top 25 suspicious transactions</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>Invoice</th><th>Seller</th><th>Buyer</th><th class="r">Amount</th><th>Risk</th><th>Why it looks suspicious</th></tr></thead>
+    <tbody>
+    {% for t in r.top %}
+      <tr><td>{{ t.id }}</td><td class="mono">{{ t.seller }}</td><td class="mono">{{ t.buyer }}</td>
+        <td class="r">{{ t.amount|inr }}</td>
+        <td><span class="pill {{ t.level|lower }}">{{ t.level }} · {{ t.pct }}%</span></td>
+        <td>{% for i in t.indicators %}<span class="tag">{{ i }}</span>{% endfor %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+</section>
+
+<section class="grid2">
+  <div class="card"><h3>Sellers with most flagged invoices</h3>
+    {% if r.sellers %}<div class="scroll"><table>
+      <thead><tr><th>Seller GSTIN</th><th class="r">Flagged</th><th class="r">Avg risk</th><th class="r">Value</th></tr></thead>
+      <tbody>{% for x in r.sellers %}<tr><td class="mono">{{ x.gstin }}</td><td class="r">{{ x.flagged }} / {{ x.total }}</td>
+        <td class="r">{{ x.avg }}%</td><td class="r">{{ x.amount|inr }}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}<p class="muted">No sellers flagged.</p>{% endif %}</div>
+  <div class="card"><h3>Circular trading rings</h3>
+    {% if r.rings %}<div class="scroll"><table>
+      <thead><tr><th>Entities in ring</th><th class="r">Size</th><th class="r">Invoices</th><th class="r">Value</th></tr></thead>
+      <tbody>{% for g in r.rings %}<tr><td class="mono small">{{ g.entities|map('truncate', 14, True, '..')|join(' → ') }} → ↺</td>
+        <td class="r">{{ g.length }}</td><td class="r">{{ g.invoices }}</td><td class="r">{{ g.volume|inr }}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}<p class="muted">No circular rings among flagged invoices.</p>{% endif %}</div>
+</section>
+
+<h2 class="sec">Model performance</h2>
+<section class="charts">
+  <figure><img src="data:image/png;base64,{{ c.confusion }}" alt="Confusion matrix"></figure>
+  <figure><img src="data:image/png;base64,{{ c.importance }}" alt="Feature importance"></figure>
+  <figure class="wide"><img src="data:image/png;base64,{{ c.roc_loss }}" alt="ROC and loss"></figure>
+</section>
+
+{% if r.check %}
+<section class="card"><h3>Accuracy on this file (labels were present)</h3>
+  <div class="kv"><span>Accuracy</span><b>{{ r.check.acc }}%</b></div>
+  <div class="kv"><span>Precision</span><b>{{ r.check.prec }}%</b></div>
+  <div class="kv"><span>Recall</span><b>{{ r.check.rec }}%</b></div>
+  <p class="muted">TP {{ r.check.tp }} · FP {{ r.check.fp }} · FN {{ r.check.fn }} · TN {{ r.check.tn }}</p></section>
+{% endif %}
+
+<section class="card final {{ v.rating|lower }}">
+  <h2>Final information</h2>
+  <div class="grid2">
+    <div><h3>Key findings</h3><ul>{% for f in v.findings %}<li>{{ f }}</li>{% endfor %}</ul></div>
+    <div><h3>Recommended actions</h3><ul>{% for a in v.actions %}<li>{{ a }}</li>{% endfor %}</ul></div>
+  </div>
+  <p class="muted small">Model: {{ r.model.architecture }} · test ROC-AUC {{ r.model.roc_auc }}, precision {{ r.model.precision }}, recall {{ r.model.recall }}.
+  Flags are leads for review, not proof of fraud. This report is stored in the database as report {{ rid }}.</p>
+</section>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}

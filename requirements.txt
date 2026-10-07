@@ -1,0 +1,8 @@
+# Compatible ranges (what you install). Exact tested versions are in requirements-lock.txt
+flask>=3.1,<4
+pandas>=2.2,<4
+numpy>=1.26,<3
+scikit-learn>=1.5,<2
+tensorflow>=2.16,<3
+matplotlib>=3.8,<4
+networkx>=3.3,<4
